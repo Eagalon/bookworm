@@ -1,0 +1,74 @@
+name: Build and Release Bookworm
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    tags:
+      - 'v*.*.*'  # Auto-trigger on semantic version tags
+    branches:
+      - main  # Optional: Build on main pushes (for testing)
+
+jobs:
+  build:
+    runs-on: windows-latest  # Windows required for NSIS and GNU tools
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # For tagging/release context
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Git and GNU win32 tools
+      run: |
+        # Git installation provides mingw64\bin with GNU tools (e.g., make, sed)
+        choco install git
+        # Refresh env vars
+        refreshenv
+
+    - name: Install NSIS
+      run: |
+        # Download and install NSIS (for Windows installers)
+        choco install nsis
+        # Refresh env vars
+        refreshenv
+
+    - name: Create virtual environment and install Invoke
+      shell: powershell
+      run: |
+        python -m venv .env
+        .\.env\Scripts\Activate.ps1
+        pip install invoke
+
+    - name: Prepare development environment
+      shell: powershell
+      run: |
+        .\.env\Scripts\Activate.ps1
+        invoke dev
+
+    - name: Build project
+      shell: powershell
+      run: |
+        .\.env\Scripts\Activate.ps1
+        invoke build
+      # Optional: Add --release or version flags here if defined in tasks.py
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bookworm-installer
+        path: dist/*.exe  # Adjust path to match your build output (e.g., bookworm-setup.exe)
+        retention-days: 30
+
+    - name: Create Release (if tagged)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/*.exe  # Publish the installer as a release asset
+        generate_release_notes: true  # Auto-generate notes from commits
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
