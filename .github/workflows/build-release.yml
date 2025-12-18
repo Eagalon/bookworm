@@ -1,0 +1,67 @@
+name: Build and Release Bookworm
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'          # Trigger on tags like v2025.2 or v1.0.0
+      - 'v*.*.*-*'        # Also support pre-releases like v2025.2-alpha
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Needed for proper versioning if using git tags
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Invoke and dependencies
+        run: |
+          pip install invoke
+          pip install -r requirements-dev.txt   # Includes invoke and other dev tools
+          pip install -r requirements.txt
+          pip install -r requirements-app.txt   # If separate
+
+      - name: Install NSIS
+        uses: fedorkorotkov/setup-nsis@v1   # Reliable community action for NSIS
+
+      - name: Run invoke build
+        run: invoke build
+        # This executes the build tasks defined in tasks.py
+        # Expected to produce artifacts like Bookworm_Setup.exe and portable version in dist/ or similar
+
+      - name: Upload artifacts (for inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bookworm-build-artifacts
+          path: |
+            dist/*
+            build/*
+            *.exe
+            *.zip   # Adjust paths based on actual output if needed
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest   # Lighter for just creating release
+    permissions:
+      contents: write   # Required for creating releases
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bookworm-build-artifacts
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}   # Auto-mark as pre-release if tag has -alpha etc.
+          generate_release_notes: true   # Optional: auto-generate notes from commits
